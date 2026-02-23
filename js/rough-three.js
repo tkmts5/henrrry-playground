@@ -19,8 +19,8 @@
         return;
     }
 
-    const DEFAULT_BOX_COLOR = '#c4b8a8';
-    const DEFAULT_SPHERE_COLOR = '#c4b8a8';
+    const DEFAULT_BOX_COLOR = '#f5edd8';
+    const DEFAULT_SPHERE_COLOR = '#f5edd8';
 
     const PERLIN_P = new Uint8Array(512);
     (function () {
@@ -121,6 +121,48 @@
         [4, 5], [4, 6], [5, 7], [6, 7]
     ];
 
+    /** 向かい合う4本ずつで同じ形状にするための辺の分類（幅・奥行き・高さの3種類） */
+    const BOX_EDGE_TYPES = {
+        width:  [[0, 4], [1, 5], [2, 6], [3, 7]],
+        depth:  [[0, 2], [1, 3], [4, 6], [5, 7]],
+        height: [[0, 1], [2, 3], [4, 5], [6, 7]]
+    };
+
+    /**
+     * 1本の辺から (t, jitter) のテンプレートを生成する。同じ形状を平行な辺に適用するため。
+     * @param {THREE.Vector3[]} points - roughEdgePoints の戻り値
+     * @param {THREE.Vector3} a - 始点
+     * @param {THREE.Vector3} b - 終点
+     * @returns {{ t: number, jx: number, jy: number, jz: number }[]}
+     */
+    function edgeTemplateFromPoints(points, a, b) {
+        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const lenSq = dx * dx + dy * dy + dz * dz || 1;
+        return points.map((p) => {
+            const px = p.x - a.x, py = p.y - a.y, pz = p.z - a.z;
+            const t = (px * dx + py * dy + pz * dz) / lenSq;
+            return {
+                t,
+                jx: p.x - (a.x + dx * t),
+                jy: p.y - (a.y + dy * t),
+                jz: p.z - (a.z + dz * t)
+            };
+        });
+    }
+
+    /**
+     * テンプレートを別の辺 A'→B' に適用し、同じぶらし形状の点列を返す。
+     */
+    function applyEdgeTemplate(vertices, lo, hi, template) {
+        const a = vertices[lo], b = vertices[hi];
+        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        return template.map(({ t, jx, jy, jz }) => new THREE.Vector3(
+            a.x + dx * t + jx,
+            a.y + dy * t + jy,
+            a.z + dz * t + jz
+        ));
+    }
+
     /**
      * 数学座標系で直方体の6面をラフな輪郭で生成し、sceneに追加する。
      * 8頂点を共有し、12本の辺を1回だけ計算して接する面で共有する。
@@ -153,9 +195,35 @@
         ];
         const vertices = mathVertices.map(([mx, my, mz]) => mathToThree(mx, my, mz));
 
+        // 3種類の辺形状テンプレートを、各代表辺1本だけ rough で生成
+        const [canonX, canonY, canonZ] = [
+            BOX_EDGE_TYPES.width[0],
+            BOX_EDGE_TYPES.depth[0],
+            BOX_EDGE_TYPES.height[0]
+        ];
+        const templateX = edgeTemplateFromPoints(
+            roughEdgePoints(vertices[canonX[0]], vertices[canonX[1]], segLen, jit),
+            vertices[canonX[0]], vertices[canonX[1]]
+        );
+        const templateY = edgeTemplateFromPoints(
+            roughEdgePoints(vertices[canonY[0]], vertices[canonY[1]], segLen, jit),
+            vertices[canonY[0]], vertices[canonY[1]]
+        );
+        const templateZ = edgeTemplateFromPoints(
+            roughEdgePoints(vertices[canonZ[0]], vertices[canonZ[1]], segLen, jit),
+            vertices[canonZ[0]], vertices[canonZ[1]]
+        );
+
+        const edgeKeyToTemplate = new Map();
+        BOX_EDGE_TYPES.width.forEach(([p, q]) => edgeKeyToTemplate.set(`${Math.min(p, q)}-${Math.max(p, q)}`, templateX));
+        BOX_EDGE_TYPES.depth.forEach(([p, q]) => edgeKeyToTemplate.set(`${Math.min(p, q)}-${Math.max(p, q)}`, templateY));
+        BOX_EDGE_TYPES.height.forEach(([p, q]) => edgeKeyToTemplate.set(`${Math.min(p, q)}-${Math.max(p, q)}`, templateZ));
+
         const edgeCache = new Map();
         BOX_EDGES.forEach(([i, j]) => {
-            edgeCache.set(`${i}-${j}`, roughEdgePoints(vertices[i], vertices[j], segLen, jit));
+            const lo = Math.min(i, j), hi = Math.max(i, j);
+            const template = edgeKeyToTemplate.get(`${lo}-${hi}`);
+            edgeCache.set(`${lo}-${hi}`, applyEdgeTemplate(vertices, lo, hi, template));
         });
 
         function getEdgePoints(fromIdx, toIdx) {
@@ -190,7 +258,17 @@
             const e1 = getEdgePoints(b, c);
             const e2 = getEdgePoints(c, d);
             const e3 = getEdgePoints(d, a);
-            const outline = [...e0, ...e1.slice(1), ...e2.slice(1), ...e3.slice(1)];
+            // 8頂点は座標をぶらさず、vertices の座標をそのまま使う（e0/e1/e2/e3 の端点は中間点のみ使う）
+            const outline = [
+                vertices[a].clone(),
+                ...e0.slice(1, -1),
+                vertices[b].clone(),
+                ...e1.slice(1, -1),
+                vertices[c].clone(),
+                ...e2.slice(1, -1),
+                vertices[d].clone(),
+                ...e3.slice(1, -1)
+            ];
             const n = outline.length;
             const centroid = new THREE.Vector3(0, 0, 0);
             outline.forEach((p) => centroid.add(p));
