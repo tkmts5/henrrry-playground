@@ -164,6 +164,7 @@
         let viewMode = 'front';
         let layer = 0;
         let selectedColor = 1;
+        const lastLayerByView = { front: 0, side: 0, top: 0 };
 
         function index(x, y, z) {
             return x + SIZE * y + SIZE * SIZE * z;
@@ -272,14 +273,19 @@
         gridCanvas.addEventListener('mouseup', () => { dragging = false; });
         gridCanvas.addEventListener('mouseleave', () => { dragging = false; });
 
+        function switchView(newView) {
+            lastLayerByView[viewMode] = layer;
+            viewMode = newView;
+            layer = lastLayerByView[viewMode];
+            viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
+            layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === layer));
+            drawGrid();
+            updateLayerOutline();
+        }
+
         const viewBtns = document.querySelectorAll('.view-btns button');
         viewBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                viewMode = btn.dataset.view;
-                viewBtns.forEach(b => b.classList.toggle('active', b === btn));
-                drawGrid();
-                updateLayerOutline();
-            });
+            btn.addEventListener('click', () => switchView(btn.dataset.view));
         });
 
         const layerBtns = document.getElementById('layerBtns');
@@ -291,6 +297,7 @@
             btn.classList.toggle('active', i === 0);
             btn.addEventListener('click', () => {
                 layer = i;
+                lastLayerByView[viewMode] = layer;
                 layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === i));
                 drawGrid();
                 updateLayerOutline();
@@ -323,28 +330,22 @@
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 const views = ['front', 'side', 'top'];
-                const i = views.indexOf(viewMode);
-                viewMode = views[(i - 1 + 3) % 3];
-                viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
-                drawGrid();
-                updateLayerOutline();
+                switchView(views[(views.indexOf(viewMode) - 1 + 3) % 3]);
             } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 const views = ['front', 'side', 'top'];
-                const i = views.indexOf(viewMode);
-                viewMode = views[(i + 1) % 3];
-                viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
-                drawGrid();
-                updateLayerOutline();
+                switchView(views[(views.indexOf(viewMode) + 1) % 3]);
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                layer = (layer - 1 + SIZE) % SIZE;
+                layer = (layer + 1) % SIZE;
+                lastLayerByView[viewMode] = layer;
                 layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === layer));
                 drawGrid();
                 updateLayerOutline();
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                layer = (layer + 1) % SIZE;
+                layer = (layer - 1 + SIZE) % SIZE;
+                lastLayerByView[viewMode] = layer;
                 layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === layer));
                 drawGrid();
                 updateLayerOutline();
@@ -425,8 +426,8 @@
             frameLine.position.set(boxSize / 2 - 0.5, boxSize / 2 - 0.5, boxSize / 2 - 0.5);
             scene.add(frameLine);
 
-            const layerPoints = new Float32Array(4 * 3);
-            layerOutline = new THREE.LineLoop(
+            const layerPoints = new Float32Array(12 * 2 * 3);
+            layerOutline = new THREE.LineSegments(
                 new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(layerPoints, 3)),
                 new THREE.LineBasicMaterial({ color: 0x00ffff })
             );
@@ -461,21 +462,23 @@
             if (!layerOutline) return;
             const pos = layerOutline.geometry.attributes.position.array;
             const L = layer;
+            let i = 0;
+            function seg(ax, ay, az, bx, by, bz) {
+                pos[i++] = ax; pos[i++] = ay; pos[i++] = az;
+                pos[i++] = bx; pos[i++] = by; pos[i++] = bz;
+            }
             if (viewMode === 'front') {
-                pos[0] = 0; pos[1] = L; pos[2] = 0;
-                pos[3] = 8; pos[4] = L; pos[5] = 0;
-                pos[6] = 8; pos[7] = L; pos[8] = 8;
-                pos[9] = 0; pos[10] = L; pos[11] = 8;
+                seg(0, L, 0, 8, L, 0); seg(8, L, 0, 8, L, 8); seg(8, L, 8, 0, L, 8); seg(0, L, 8, 0, L, 0);
+                seg(0, L + 1, 0, 8, L + 1, 0); seg(8, L + 1, 0, 8, L + 1, 8); seg(8, L + 1, 8, 0, L + 1, 8); seg(0, L + 1, 8, 0, L + 1, 0);
+                seg(0, L, 0, 0, L + 1, 0); seg(8, L, 0, 8, L + 1, 0); seg(8, L, 8, 8, L + 1, 8); seg(0, L, 8, 0, L + 1, 8);
             } else if (viewMode === 'side') {
-                pos[0] = L; pos[1] = 0; pos[2] = 0;
-                pos[3] = L; pos[4] = 8; pos[5] = 0;
-                pos[6] = L; pos[7] = 8; pos[8] = 8;
-                pos[9] = L; pos[10] = 0; pos[11] = 8;
+                seg(L, 0, 0, L, 8, 0); seg(L, 8, 0, L, 8, 8); seg(L, 8, 8, L, 0, 8); seg(L, 0, 8, L, 0, 0);
+                seg(L + 1, 0, 0, L + 1, 8, 0); seg(L + 1, 8, 0, L + 1, 8, 8); seg(L + 1, 8, 8, L + 1, 0, 8); seg(L + 1, 0, 8, L + 1, 0, 0);
+                seg(L, 0, 0, L + 1, 0, 0); seg(L, 8, 0, L + 1, 8, 0); seg(L, 8, 8, L + 1, 8, 8); seg(L, 0, 8, L + 1, 0, 8);
             } else {
-                pos[0] = 0; pos[1] = 0; pos[2] = L;
-                pos[3] = 8; pos[4] = 0; pos[5] = L;
-                pos[6] = 8; pos[7] = 8; pos[8] = L;
-                pos[9] = 0; pos[10] = 8; pos[11] = L;
+                seg(0, 0, L, 8, 0, L); seg(8, 0, L, 8, 8, L); seg(8, 8, L, 0, 8, L); seg(0, 8, L, 0, 0, L);
+                seg(0, 0, L + 1, 8, 0, L + 1); seg(8, 0, L + 1, 8, 8, L + 1); seg(8, 8, L + 1, 0, 8, L + 1); seg(0, 8, L + 1, 0, 0, L + 1);
+                seg(0, 0, L, 0, 0, L + 1); seg(8, 0, L, 8, 0, L + 1); seg(8, 8, L, 8, 8, L + 1); seg(0, 8, L, 0, 8, L + 1);
             }
             layerOutline.geometry.attributes.position.needsUpdate = true;
         }
