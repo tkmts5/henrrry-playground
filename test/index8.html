@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playground</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #efefef;
+            padding: 30px;
+        }
+
+        #canvas {
+            display: block;
+            width: 600px !important;
+            height: 851.25px !important;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="../js/rough-three.js"></script>
+    <script>
+        const canvas = document.getElementById('canvas');
+        canvas.width = 1748;
+        canvas.height = 2480;
+
+        const scene = new THREE.Scene();
+        // 背景色を少し退廃的な空の色に変更
+        scene.background = new THREE.Color('#e0e4e8');
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        // 光源の位置を調整し、立体感を強調
+        mainLight.position.set(-500, 800, 600);
+        scene.add(mainLight);
+
+        const camera = new THREE.PerspectiveCamera(
+            50,
+            canvas.width / canvas.height,
+            0.1,
+            10000
+        );
+        camera.position.set(700, -900, 500);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(canvas.width, canvas.height);
+        renderer.setClearColor('#e0e4e8');
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        // =========================================
+        // 作品：「寄生する都市構造」
+        // =========================================
+
+        const frameColor = '#5a5e6b'; // 無骨な鉄骨・コンクリート色
+        const unitColors = ['#f0a04b', '#f8c068', '#e8d080', '#c05030']; // 温かい居住ユニット色
+
+        // --- 1. メガストラクチャー（巨大な傾斜構造体） ---
+        // 回転機能がないため、短いブロックを少しずつずらして積み上げ、傾きを表現する
+
+        // タワーA：右奥へ傾斜
+        for (let h = 0; h < 800; h += 50) {
+            const shiftX = h * 0.2;
+            const shiftY = h * 0.3;
+            const sizeScale = 1 - h * 0.0005; // 上に行くほど少し細く
+            RoughThree.drawRoughFilledBox(
+                scene, camera,
+                new THREE.Vector3(shiftX, shiftY, h),
+                90 * sizeScale, 90 * sizeScale, 60,
+                frameColor,
+                4, 0.1 // フレームは少し粗めに
+            );
+        }
+
+        // タワーB：左前へ傾斜し、タワーAと交差させる
+        for (let h = 0; h < 650; h += 45) {
+            const startX = 300;
+            const startY = -200;
+            const shiftX = h * -0.3;
+            const shiftY = h * 0.1;
+            RoughThree.drawRoughFilledBox(
+                scene, camera,
+                new THREE.Vector3(startX + shiftX, startY + shiftY, h),
+                70, 80, 55,
+                frameColor,
+                4, 0.1
+            );
+        }
+
+        // 構造体をつなぐ巨大な水平梁
+        RoughThree.drawRoughFilledBox(
+            scene, camera,
+            new THREE.Vector3(150, 50, 300), // 中心位置
+            450, 60, 50, // サイズ（横に長い）
+            frameColor, 5, 0.1
+        );
+        RoughThree.drawRoughFilledBox(
+            scene, camera,
+            new THREE.Vector3(200, -100, 500),
+            350, 50, 40,
+            frameColor, 5, 0.1
+        );
+
+
+        // --- 2. パラサイト・ユニット（寄生する居住区） ---
+        // 特定の中心点からランダムに拡散させて配置するヘルパー関数
+        function addParasiteCluster(centerPos, count, spreadRange) {
+            for (let i = 0; i < count; i++) {
+                // ランダムな色を選択
+                const color = unitColors[Math.floor(Math.random() * unitColors.length)];
+
+                // 中心からランダムにずらす（球状ではなく、構造体に沿うような扁平な分布にする）
+                const offsetX = (Math.random() - 0.5) * spreadRange.x;
+                const offsetY = (Math.random() - 0.5) * spreadRange.y;
+                const offsetZ = (Math.random() - 0.5) * spreadRange.z;
+
+                const pos = new THREE.Vector3(
+                    centerPos.x + offsetX,
+                    centerPos.y + offsetY,
+                    centerPos.z + offsetZ
+                );
+
+                // サイズもランダムにバラつかせる
+                const baseSize = 25;
+                const sX = baseSize + Math.random() * 20;
+                const sY = baseSize + Math.random() * 20;
+                const sZ = baseSize * 0.8 + Math.random() * 15;
+
+                RoughThree.drawRoughFilledBox(
+                    scene, camera,
+                    pos, sX, sY, sZ,
+                    color,
+                    2, 0.1 // ユニットは少し細かく描画
+                );
+            }
+        }
+
+        // 梁と柱の交点や、構造体の隙間にユニット群を配置
+
+        // クラスター1：下部の交差点付近
+        addParasiteCluster(
+            new THREE.Vector3(100, 0, 280), // 中心
+            60, // 個数
+            new THREE.Vector3(180, 120, 80) // 拡散範囲
+        );
+
+        // クラスター2：上部の梁付近
+        addParasiteCluster(
+            new THREE.Vector3(220, -80, 480),
+            50,
+            new THREE.Vector3(150, 150, 60)
+        );
+
+        // クラスター3：タワーAの中腹
+        addParasiteCluster(
+            new THREE.Vector3(80, 120, 400),
+            30,
+            new THREE.Vector3(100, 100, 100)
+        );
+        // クラスター4：タワーBの頂上付近
+        addParasiteCluster(
+            new THREE.Vector3(120, -150, 620),
+            25,
+            new THREE.Vector3(80, 80, 50)
+        );
+
+        renderer.render(scene, camera);
+    </script>
+</body>
+
+</html>

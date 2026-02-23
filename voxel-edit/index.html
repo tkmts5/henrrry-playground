@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel 8×8×8</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100vh; }
+        body {
+            font-family: "Chicago", "Geneva", system-ui, sans-serif;
+            background: #e0e0e0;
+            color: #000;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            font-size: 14px;
+            font-weight: normal;
+            margin: 0 0 12px 0;
+        }
+        .main {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .panel {
+            background: #fff;
+            border: 1px solid #000;
+            padding: 10px;
+        }
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .row:last-child { margin-bottom: 0; }
+        .view-btns, .layer-btns { display: flex; gap: 2px; }
+        button {
+            font-family: inherit;
+            font-size: 12px;
+            padding: 4px 8px;
+            background: #fff;
+            border: 1px solid #000;
+            cursor: pointer;
+        }
+        button:hover { background: #e8e8e8; }
+        button.active {
+            background: #000;
+            color: #fff;
+        }
+        .layer-btns button { min-width: 24px; }
+        #gridCanvas {
+            display: block;
+            border: 1px solid #000;
+            background: #fff;
+            cursor: crosshair;
+        }
+        .palette {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            margin-top: 8px;
+        }
+        .palette button {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: 1px solid #000;
+        }
+        .palette button.selected { border-width: 3px; }
+        .palette button.palette-empty { border-style: dashed; }
+        .export-row {
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        #exportText, #importText {
+            font-family: ui-monospace, monospace;
+            font-size: 11px;
+            width: 320px;
+            height: 80px;
+            resize: vertical;
+            border: 1px solid #000;
+            padding: 6px;
+        }
+        .hint {
+            font-size: 11px;
+            color: #444;
+            margin-top: 8px;
+        }
+        #previewContainer {
+            width: 320px;
+            height: 320px;
+            border: 1px solid #000;
+            background: #c0c0c0;
+        }
+        #previewContainer canvas { display: block; width: 100%; height: 100%; }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <h1>Voxel 8×8×8</h1>
+    <div class="main">
+        <div class="panel">
+            <div class="row">
+                <span>視点</span>
+                <div class="view-btns">
+                    <button type="button" data-view="front" class="active">上面</button>
+                    <button type="button" data-view="side">側面</button>
+                    <button type="button" data-view="top">正面</button>
+                </div>
+            </div>
+            <div class="row">
+                <span>レイヤー</span>
+                <div class="layer-btns" id="layerBtns"></div>
+            </div>
+            <canvas id="gridCanvas" width="256" height="256"></canvas>
+            <div class="palette" id="palette"></div>
+            <div class="export-row">
+                <button type="button" id="importBtn">インポート</button>
+                <textarea id="importText" placeholder="0000a00b... (512文字)"></textarea>
+            </div>
+            <div class="export-row">
+                <button type="button" id="exportBtn">エクスポート</button>
+                <textarea id="exportText" readonly placeholder="エクスポート結果"></textarea>
+                <button type="button" id="copyBtn">コピー</button>
+            </div>
+            <p class="hint">← → 視点 / ↑ ↓ レイヤー</p>
+        </div>
+        <div class="panel">
+            <div id="previewContainer"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const SIZE = 8;
+        const CELL = 256 / SIZE; // 32px per cell
+
+        // 0 = ドットなし、1〜15 = 15色
+        const PALETTE = [
+            null, // 0: 空（パレット表示用にスウォッチのみ）
+            '#000000', '#ffffff', '#888888', '#cccccc',
+            '#ff0000', '#00ff00', '#0000ff', '#ffff00',
+            '#ff00ff', '#00ffff', '#884400', '#448844',
+            '#444488', '#ff8844', '#88ff44'
+        ];
+
+        const voxels = new Uint8Array(SIZE * SIZE * SIZE);
+        let viewMode = 'front';
+        let layer = 0;
+        let selectedColor = 1;
+
+        function index(x, y, z) {
+            return x + SIZE * y + SIZE * SIZE * z;
+        }
+
+        function getVoxel(x, y, z) {
+            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE) return 0;
+            return voxels[index(x, y, z)];
+        }
+
+        function setVoxel(x, y, z, colorIndex) {
+            if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE) return;
+            voxels[index(x, y, z)] = colorIndex;
+        }
+
+        function gridToVoxel(gridX, gridY) {
+            if (gridX < 0 || gridX >= SIZE || gridY < 0 || gridY >= SIZE) return null;
+            if (viewMode === 'front') return { x: gridX, y: layer, z: gridY };
+            if (viewMode === 'side') return { x: layer, y: 7 - gridY, z: 7 - gridX };
+            return { x: gridX, y: 7 - gridY, z: layer };
+        }
+
+        const gridCanvas = document.getElementById('gridCanvas');
+        const ctx = gridCanvas.getContext('2d');
+
+        function drawGrid() {
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, 256, 256);
+            for (let i = 0; i <= SIZE; i++) {
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(i * CELL, 0);
+                ctx.lineTo(i * CELL, 256);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL);
+                ctx.lineTo(256, i * CELL);
+                ctx.stroke();
+            }
+            for (let gx = 0; gx < SIZE; gx++) {
+                for (let gy = 0; gy < SIZE; gy++) {
+                    const v = gridToVoxel(gx, gy);
+                    if (!v) continue;
+                    const c = getVoxel(v.x, v.y, v.z);
+                    if (c === 0) continue;
+                    ctx.fillStyle = PALETTE[c];
+                    ctx.fillRect(gx * CELL + 1, gy * CELL + 1, CELL - 1, CELL - 1);
+                }
+            }
+        }
+
+        function getGridPos(e) {
+            const rect = gridCanvas.getBoundingClientRect();
+            const scale = 256 / rect.width;
+            const gx = Math.floor((e.clientX - rect.left) * scale / CELL);
+            const gy = Math.floor((e.clientY - rect.top) * scale / CELL);
+            return { gx, gy };
+        }
+
+        function applyCell(gx, gy, dragAction) {
+            const v = gridToVoxel(gx, gy);
+            if (!v) return;
+            const newVal = dragAction === 'erase' ? 0 : selectedColor;
+            setVoxel(v.x, v.y, v.z, newVal);
+        }
+
+        function lineCells(gx0, gy0, gx1, gy1, fn) {
+            const n = Math.max(Math.abs(gx1 - gx0), Math.abs(gy1 - gy0), 1);
+            for (let i = 0; i <= n; i++) {
+                const t = i / n;
+                const cx = Math.round(gx0 + t * (gx1 - gx0));
+                const cy = Math.round(gy0 + t * (gy1 - gy0));
+                if (cx >= 0 && cx < SIZE && cy >= 0 && cy < SIZE) fn(cx, cy);
+            }
+        }
+
+        let dragging = false;
+        let dragAction = 'paint';
+        let lastGx = -1, lastGy = -1;
+
+        gridCanvas.addEventListener('mousedown', (e) => {
+            const { gx, gy } = getGridPos(e);
+            if (gx < 0 || gx >= SIZE || gy < 0 || gy >= SIZE) return;
+            const v = gridToVoxel(gx, gy);
+            if (!v) return;
+            dragAction = getVoxel(v.x, v.y, v.z) !== 0 ? 'erase' : 'paint';
+            dragging = true;
+            lastGx = gx; lastGy = gy;
+            applyCell(gx, gy, dragAction);
+            drawGrid();
+            update3D();
+        });
+
+        gridCanvas.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const { gx, gy } = getGridPos(e);
+            if (gx < 0 || gx >= SIZE || gy < 0 || gy >= SIZE) return;
+            if (gx === lastGx && gy === lastGy) return;
+            lineCells(lastGx, lastGy, gx, gy, (cx, cy) => applyCell(cx, cy, dragAction));
+            lastGx = gx; lastGy = gy;
+            drawGrid();
+            update3D();
+        });
+
+        gridCanvas.addEventListener('mouseup', () => { dragging = false; });
+        gridCanvas.addEventListener('mouseleave', () => { dragging = false; });
+
+        const viewBtns = document.querySelectorAll('.view-btns button');
+        viewBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                viewMode = btn.dataset.view;
+                viewBtns.forEach(b => b.classList.toggle('active', b === btn));
+                drawGrid();
+                updateLayerOutline();
+            });
+        });
+
+        const layerBtns = document.getElementById('layerBtns');
+        for (let i = 0; i < SIZE; i++) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = i;
+            btn.dataset.layer = i;
+            btn.classList.toggle('active', i === 0);
+            btn.addEventListener('click', () => {
+                layer = i;
+                layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === i));
+                drawGrid();
+                updateLayerOutline();
+            });
+            layerBtns.appendChild(btn);
+        }
+
+        const paletteEl = document.getElementById('palette');
+        PALETTE.forEach((hex, i) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.title = i === 0 ? '消し（0）' : `色 ${i}`;
+            if (i === 0) {
+                btn.style.background = '#f0f0f0';
+                btn.classList.add('palette-empty');
+            } else {
+                btn.style.background = hex;
+            }
+            btn.classList.toggle('selected', i === 1);
+            btn.addEventListener('click', () => {
+                selectedColor = i;
+                paletteEl.querySelectorAll('button').forEach((b, j) => b.classList.toggle('selected', j === i));
+            });
+            paletteEl.appendChild(btn);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            const tag = document.activeElement?.tagName?.toLowerCase();
+            if (tag === 'input' || tag === 'textarea') return;
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const views = ['front', 'side', 'top'];
+                const i = views.indexOf(viewMode);
+                viewMode = views[(i - 1 + 3) % 3];
+                viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
+                drawGrid();
+                updateLayerOutline();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                const views = ['front', 'side', 'top'];
+                const i = views.indexOf(viewMode);
+                viewMode = views[(i + 1) % 3];
+                viewBtns.forEach(b => b.classList.toggle('active', b.dataset.view === viewMode));
+                drawGrid();
+                updateLayerOutline();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                layer = (layer - 1 + SIZE) % SIZE;
+                layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === layer));
+                drawGrid();
+                updateLayerOutline();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                layer = (layer + 1) % SIZE;
+                layerBtns.querySelectorAll('button').forEach((b, j) => b.classList.toggle('active', j === layer));
+                drawGrid();
+                updateLayerOutline();
+            }
+        });
+
+        const exportBtn = document.getElementById('exportBtn');
+        const exportText = document.getElementById('exportText');
+        const copyBtn = document.getElementById('copyBtn');
+        const importBtn = document.getElementById('importBtn');
+        const importText = document.getElementById('importText');
+
+        function exportData() {
+            const str = Array.from(voxels).map(v => v.toString(16)).join('');
+            exportText.value = str;
+        }
+
+        function importData() {
+            const s = importText.value.replace(/\s/g, '');
+            if (s.length !== SIZE * SIZE * SIZE) {
+                alert('512文字の文字列を貼り付けてください');
+                return;
+            }
+            for (let i = 0; i < voxels.length; i++) {
+                const v = parseInt(s[i], 16);
+                voxels[i] = isNaN(v) ? 0 : Math.max(0, Math.min(15, v));
+            }
+            drawGrid();
+            update3D();
+            updateLayerOutline();
+        }
+
+        exportBtn.addEventListener('click', exportData);
+        copyBtn.addEventListener('click', () => {
+            exportData();
+            exportText.select();
+            navigator.clipboard.writeText(exportText.value);
+        });
+        importBtn.addEventListener('click', importData);
+
+        let scene, camera, renderer, controls, meshes, layerOutline;
+
+        function init3D() {
+            const container = document.getElementById('previewContainer');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xc0c0c0);
+            camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+            camera.position.set(12, 12, 12);
+            camera.lookAt(SIZE / 2 - 0.5, SIZE / 2 - 0.5, SIZE / 2 - 0.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(320, 320);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            meshes = [];
+            for (let z = 0; z < SIZE; z++) {
+                for (let y = 0; y < SIZE; y++) {
+                    for (let x = 0; x < SIZE; x++) {
+                        const mat = new THREE.MeshBasicMaterial({
+                            color: new THREE.Color(PALETTE[1])
+                        });
+                        const mesh = new THREE.Mesh(geometry, mat);
+                        mesh.position.set(x, y, z);
+                        mesh.userData = { x, y, z };
+                        mesh.visible = false;
+                        scene.add(mesh);
+                        meshes.push(mesh);
+                    }
+                }
+            }
+
+            const boxSize = SIZE;
+            const frameGeom = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+            const edges = new THREE.EdgesGeometry(frameGeom);
+            const frameLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x666666, linewidth: 1 }));
+            frameLine.position.set(boxSize / 2 - 0.5, boxSize / 2 - 0.5, boxSize / 2 - 0.5);
+            scene.add(frameLine);
+
+            const layerPoints = new Float32Array(4 * 3);
+            layerOutline = new THREE.LineLoop(
+                new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(layerPoints, 3)),
+                new THREE.LineBasicMaterial({ color: 0x00ffff })
+            );
+            scene.add(layerOutline);
+
+            const light = new THREE.AmbientLight(0xffffff, 1);
+            scene.add(light);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(SIZE / 2 - 0.5, SIZE / 2 - 0.5, SIZE / 2 - 0.5);
+            controls.enableDamping = true;
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        function update3D() {
+            if (!meshes) return;
+            meshes.forEach(mesh => {
+                const { x, y, z } = mesh.userData;
+                const c = getVoxel(x, y, z);
+                mesh.visible = c !== 0;
+                if (c !== 0) mesh.material.color.set(PALETTE[c]);
+            });
+            updateLayerOutline();
+        }
+
+        function updateLayerOutline() {
+            if (!layerOutline) return;
+            const pos = layerOutline.geometry.attributes.position.array;
+            const L = layer;
+            if (viewMode === 'front') {
+                pos[0] = 0; pos[1] = L; pos[2] = 0;
+                pos[3] = 8; pos[4] = L; pos[5] = 0;
+                pos[6] = 8; pos[7] = L; pos[8] = 8;
+                pos[9] = 0; pos[10] = L; pos[11] = 8;
+            } else if (viewMode === 'side') {
+                pos[0] = L; pos[1] = 0; pos[2] = 0;
+                pos[3] = L; pos[4] = 8; pos[5] = 0;
+                pos[6] = L; pos[7] = 8; pos[8] = 8;
+                pos[9] = L; pos[10] = 0; pos[11] = 8;
+            } else {
+                pos[0] = 0; pos[1] = 0; pos[2] = L;
+                pos[3] = 8; pos[4] = 0; pos[5] = L;
+                pos[6] = 8; pos[7] = 8; pos[8] = L;
+                pos[9] = 0; pos[10] = 8; pos[11] = L;
+            }
+            layerOutline.geometry.attributes.position.needsUpdate = true;
+        }
+
+        init3D();
+        update3D();
+        drawGrid();
+    </script>
+</body>
+</html>
