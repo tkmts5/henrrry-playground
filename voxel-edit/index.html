@@ -130,7 +130,7 @@
             <div class="palette" id="palette"></div>
             <div class="export-row">
                 <button type="button" id="importBtn">インポート</button>
-                <textarea id="importText" placeholder="0000a00b... (512文字)"></textarea>
+                <textarea id="importText" placeholder="256文字 or 512文字"></textarea>
             </div>
             <div class="export-row">
                 <button type="button" id="exportBtn">エクスポート</button>
@@ -251,7 +251,8 @@
             if (gx < 0 || gx >= SIZE || gy < 0 || gy >= SIZE) return;
             const v = gridToVoxel(gx, gy);
             if (!v) return;
-            dragAction = getVoxel(v.x, v.y, v.z) !== 0 ? 'erase' : 'paint';
+            const current = getVoxel(v.x, v.y, v.z);
+            dragAction = (current !== 0 && current === selectedColor) ? 'erase' : 'paint';
             dragging = true;
             lastGx = gx; lastGy = gy;
             applyCell(gx, gy, dragAction);
@@ -358,20 +359,35 @@
         const importBtn = document.getElementById('importBtn');
         const importText = document.getElementById('importText');
 
+        const EXPORT_CHAR_BASE = 0x100;
+
         function exportData() {
-            const str = Array.from(voxels).map(v => v.toString(16)).join('');
-            exportText.value = str;
+            const hex = Array.from(voxels).map(v => v.toString(16)).join('');
+            let out = '';
+            for (let i = 0; i < 256; i++) {
+                const v = parseInt(hex[i * 2], 16) * 16 + parseInt(hex[i * 2 + 1], 16);
+                out += String.fromCodePoint(EXPORT_CHAR_BASE + (isNaN(v) ? 0 : Math.max(0, Math.min(255, v))));
+            }
+            exportText.value = out;
         }
 
         function importData() {
             const s = importText.value.replace(/\s/g, '');
-            if (s.length !== SIZE * SIZE * SIZE) {
-                alert('512文字の文字列を貼り付けてください');
+            if (s.length === 256) {
+                for (let i = 0; i < 256; i++) {
+                    const v = (s.codePointAt(i) || EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE;
+                    const val = Math.max(0, Math.min(255, v));
+                    voxels[i * 2] = (val >> 4) & 15;
+                    voxels[i * 2 + 1] = val & 15;
+                }
+            } else if (s.length === SIZE * SIZE * SIZE) {
+                for (let i = 0; i < voxels.length; i++) {
+                    const v = parseInt(s[i], 16);
+                    voxels[i] = isNaN(v) ? 0 : Math.max(0, Math.min(15, v));
+                }
+            } else {
+                alert('256文字または512文字の文字列を貼り付けてください');
                 return;
-            }
-            for (let i = 0; i < voxels.length; i++) {
-                const v = parseInt(s[i], 16);
-                voxels[i] = isNaN(v) ? 0 : Math.max(0, Math.min(15, v));
             }
             drawGrid();
             update3D();
