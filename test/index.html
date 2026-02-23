@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playground</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #efefef;
+            padding: 100px;
+        }
+
+        #canvas {
+            max-width: 100%;
+            max-height: calc(100vh - 200px);
+            width: auto;
+            height: auto;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        canvas.width = 1748;
+        canvas.height = 2480;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#d9d8d2';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        function drawRoughLine(ctx, x0, y0, x1, y1, segmentLength, jitter) {
+            const dx = x1 - x0, dy = y1 - y0;
+            const totalLen = Math.hypot(dx, dy);
+            const steps = Math.max(1, Math.ceil(totalLen / segmentLength));
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const px = x0 + dx * t + (Math.random() - 0.5) * 2 * jitter;
+                const py = y0 + dy * t + (Math.random() - 0.5) * 2 * jitter;
+                ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+        }
+
+        function drawRoughCircle(ctx, cx, cy, radius, segmentLength, jitter) {
+            const circumference = 2 * Math.PI * radius;
+            const steps = Math.max(1, Math.ceil(circumference / segmentLength));
+            ctx.beginPath();
+            for (let i = 0; i < steps; i++) {
+                const angle = (i / steps) * 2 * Math.PI;
+                const r = radius + (Math.random() - 0.5) * 2 * jitter;
+                const px = cx + r * Math.cos(angle);
+                const py = cy + r * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 4;
+        drawRoughLine(ctx, 10, canvas.height * 0.5, canvas.width - 10, canvas.height * 0.5, 20, 3);
+
+        // 12個の円を円周上に並べる（3D風に奥行きでサイズ調整）
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const layoutRadius = 420;   // 12個の中心が乗る円の半径
+        const baseRadius = 90;      // 手前の円の基準半径
+        const depthScale = 0.5;    // 奥行きによるサイズ差（0.6〜1.4倍）
+        const n = 12;
+
+        ctx.strokeStyle = 'transparent';
+        ctx.fillStyle = 'hsla(56, 72%, 42%, 1)';
+        ctx.globalCompositeOperation = 'multiply';
+
+        for (let i = 0; i < n; i++) {
+            const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+            const cx = centerX + layoutRadius * Math.cos(angle);
+            const cy = centerY + layoutRadius * Math.sin(angle);
+            const depth = Math.sin(angle);
+            const scale = 1 + depthScale * depth;
+            const r = baseRadius * scale;
+            drawRoughCircle(ctx, cx, cy, r, 20, 3);
+            ctx.fill();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playground</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #efefef;
+            padding: 30px;
+        }
+
+        #canvas {
+            display: block;
+            width: 600px !important;
+            height: 851.25px !important;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="../js/rough-three.js"></script>
+    <script>
+        const canvas = document.getElementById('canvas');
+        canvas.width = 1748;
+        canvas.height = 2480;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#d9d8d2');
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+        const mainLight = new THREE.DirectionalLight(0xffffff, 0.95);
+        mainLight.position.set(-400, 1000, 400);
+        mainLight.target.position.set(0, 0, 0);
+        scene.add(mainLight);
+        scene.add(mainLight.target);
+       /* const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
+        fillLight.position.set(-500, 1000, 1000);
+        fillLight.target.position.set(0, 0, 0);
+        scene.add(fillLight);
+        scene.add(fillLight.target);*/
+
+        const camera = new THREE.PerspectiveCamera(
+            50,
+            canvas.width / canvas.height,
+            0.1,
+            10000
+        );
+        camera.position.set(400, 350, 400);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(canvas.width, canvas.height);
+        renderer.setClearColor('#d9d8d2');
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        const boxWidth = 20, boxDepth = 20, boxHeight = 50;
+        const gridSize = 6;
+        const spacingX = boxWidth+5, spacingY = boxDepth+5;
+        const offset = (gridSize - 1) * 0.5;
+
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                const cx = (i - offset) * spacingX;
+                const cy = (j - offset) * spacingY;
+                const cz = boxHeight * 0.5;
+                RoughThree.drawRoughFilledBox(
+                    scene,
+                    camera,
+                    new THREE.Vector3(cx, cy, cz),
+                    boxWidth,
+                    boxDepth,
+                    boxHeight
+                );
+            }
+        }
+
+        renderer.render(scene, camera);
+    </script>
+</body>
+
+</html>
