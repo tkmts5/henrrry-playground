@@ -60,8 +60,8 @@
             cursor: crosshair;
         }
         .palette {
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
+            display: flex;
+            flex-wrap: wrap;
             gap: 2px;
             margin-top: 8px;
         }
@@ -130,7 +130,7 @@
             <div class="palette" id="palette"></div>
             <div class="export-row">
                 <button type="button" id="importBtn">インポート</button>
-                <textarea id="importText" placeholder="256文字 or 512文字"></textarea>
+                <textarea id="importText" placeholder="192文字"></textarea>
             </div>
             <div class="export-row">
                 <button type="button" id="exportBtn">エクスポート</button>
@@ -151,13 +151,11 @@
         const SIZE = 8;
         const CELL = 256 / SIZE; // 32px per cell
 
-        // 0 = ドットなし、1〜15 = 15色
+        // 0 = ドットなし、1〜7 = 7色（8色に圧縮）
         const PALETTE = [
-            null, // 0: 空（パレット表示用にスウォッチのみ）
-            '#000000', '#ffffff', '#888888', '#cccccc',
-            '#ff0000', '#00ff00', '#0000ff', '#ffff00',
-            '#ff00ff', '#00ffff', '#884400', '#448844',
-            '#444488', '#ff8844', '#88ff44'
+            null, // 0: 空
+            '#000000', '#ffffff', '#888888', '#ff0000',
+            '#00ff00', '#0000ff', '#ffff00'
         ];
 
         const voxels = new Uint8Array(SIZE * SIZE * SIZE);
@@ -177,7 +175,7 @@
 
         function setVoxel(x, y, z, colorIndex) {
             if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE) return;
-            voxels[index(x, y, z)] = colorIndex;
+            voxels[index(x, y, z)] = Math.max(0, Math.min(7, colorIndex));
         }
 
         function gridToVoxel(gridX, gridY) {
@@ -359,35 +357,43 @@
         const importBtn = document.getElementById('importBtn');
         const importText = document.getElementById('importText');
 
-        const EXPORT_CHAR_BASE = 0x100;
+        const EXPORT_CHAR_BASE = 0xA500;
+        const PACKED_LEN = 192;
 
         function exportData() {
-            const hex = Array.from(voxels).map(v => v.toString(16)).join('');
+            const v = voxels;
             let out = '';
-            for (let i = 0; i < 256; i++) {
-                const v = parseInt(hex[i * 2], 16) * 16 + parseInt(hex[i * 2 + 1], 16);
-                out += String.fromCodePoint(EXPORT_CHAR_BASE + (isNaN(v) ? 0 : Math.max(0, Math.min(255, v))));
+            for (let g = 0; g < 64; g++) {
+                const i = g * 8;
+                const v0 = v[i] & 7, v1 = v[i + 1] & 7, v2 = v[i + 2] & 7, v3 = v[i + 3] & 7;
+                const v4 = v[i + 4] & 7, v5 = v[i + 5] & 7, v6 = v[i + 6] & 7, v7 = v[i + 7] & 7;
+                const b0 = (v0 << 5) | (v1 << 2) | (v2 >> 1);
+                const b1 = ((v2 & 1) << 7) | (v3 << 4) | (v4 << 1) | (v5 >> 2);
+                const b2 = ((v5 & 3) << 6) | (v6 << 3) | v7;
+                out += String.fromCodePoint(EXPORT_CHAR_BASE + b0, EXPORT_CHAR_BASE + b1, EXPORT_CHAR_BASE + b2);
             }
             exportText.value = out;
         }
 
         function importData() {
             const s = importText.value.replace(/\s/g, '');
-            if (s.length === 256) {
-                for (let i = 0; i < 256; i++) {
-                    const v = (s.codePointAt(i) || EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE;
-                    const val = Math.max(0, Math.min(255, v));
-                    voxels[i * 2] = (val >> 4) & 15;
-                    voxels[i * 2 + 1] = val & 15;
-                }
-            } else if (s.length === SIZE * SIZE * SIZE) {
-                for (let i = 0; i < voxels.length; i++) {
-                    const v = parseInt(s[i], 16);
-                    voxels[i] = isNaN(v) ? 0 : Math.max(0, Math.min(15, v));
-                }
-            } else {
-                alert('256文字または512文字の文字列を貼り付けてください');
+            if (s.length !== PACKED_LEN) {
+                alert('192文字の文字列を貼り付けてください');
                 return;
+            }
+            for (let g = 0; g < 64; g++) {
+                const i = g * 8;
+                const b0 = ((s.codePointAt(g * 3) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
+                const b1 = ((s.codePointAt(g * 3 + 1) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
+                const b2 = ((s.codePointAt(g * 3 + 2) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
+                voxels[i] = b0 >> 5;
+                voxels[i + 1] = (b0 >> 2) & 7;
+                voxels[i + 2] = ((b0 & 3) << 1) | (b1 >> 7);
+                voxels[i + 3] = (b1 >> 4) & 7;
+                voxels[i + 4] = (b1 >> 1) & 7;
+                voxels[i + 5] = ((b1 & 1) << 2) | (b2 >> 6);
+                voxels[i + 6] = (b2 >> 3) & 7;
+                voxels[i + 7] = b2 & 7;
             }
             drawGrid();
             update3D();
@@ -478,23 +484,25 @@
             if (!layerOutline) return;
             const pos = layerOutline.geometry.attributes.position.array;
             const L = layer;
+            const lo = -0.5, hi = 7.5;
+            const L0 = L - 0.5, L1 = L + 0.5;
             let i = 0;
             function seg(ax, ay, az, bx, by, bz) {
                 pos[i++] = ax; pos[i++] = ay; pos[i++] = az;
                 pos[i++] = bx; pos[i++] = by; pos[i++] = bz;
             }
             if (viewMode === 'front') {
-                seg(0, L, 0, 8, L, 0); seg(8, L, 0, 8, L, 8); seg(8, L, 8, 0, L, 8); seg(0, L, 8, 0, L, 0);
-                seg(0, L + 1, 0, 8, L + 1, 0); seg(8, L + 1, 0, 8, L + 1, 8); seg(8, L + 1, 8, 0, L + 1, 8); seg(0, L + 1, 8, 0, L + 1, 0);
-                seg(0, L, 0, 0, L + 1, 0); seg(8, L, 0, 8, L + 1, 0); seg(8, L, 8, 8, L + 1, 8); seg(0, L, 8, 0, L + 1, 8);
+                seg(lo, L0, lo, hi, L0, lo); seg(hi, L0, lo, hi, L0, hi); seg(hi, L0, hi, lo, L0, hi); seg(lo, L0, hi, lo, L0, lo);
+                seg(lo, L1, lo, hi, L1, lo); seg(hi, L1, lo, hi, L1, hi); seg(hi, L1, hi, lo, L1, hi); seg(lo, L1, hi, lo, L1, lo);
+                seg(lo, L0, lo, lo, L1, lo); seg(hi, L0, lo, hi, L1, lo); seg(hi, L0, hi, hi, L1, hi); seg(lo, L0, hi, lo, L1, hi);
             } else if (viewMode === 'side') {
-                seg(L, 0, 0, L, 8, 0); seg(L, 8, 0, L, 8, 8); seg(L, 8, 8, L, 0, 8); seg(L, 0, 8, L, 0, 0);
-                seg(L + 1, 0, 0, L + 1, 8, 0); seg(L + 1, 8, 0, L + 1, 8, 8); seg(L + 1, 8, 8, L + 1, 0, 8); seg(L + 1, 0, 8, L + 1, 0, 0);
-                seg(L, 0, 0, L + 1, 0, 0); seg(L, 8, 0, L + 1, 8, 0); seg(L, 8, 8, L + 1, 8, 8); seg(L, 0, 8, L + 1, 0, 8);
+                seg(L0, lo, lo, L0, hi, lo); seg(L0, hi, lo, L0, hi, hi); seg(L0, hi, hi, L0, lo, hi); seg(L0, lo, hi, L0, lo, lo);
+                seg(L1, lo, lo, L1, hi, lo); seg(L1, hi, lo, L1, hi, hi); seg(L1, hi, hi, L1, lo, hi); seg(L1, lo, hi, L1, lo, lo);
+                seg(L0, lo, lo, L1, lo, lo); seg(L0, hi, lo, L1, hi, lo); seg(L0, hi, hi, L1, hi, hi); seg(L0, lo, hi, L1, lo, hi);
             } else {
-                seg(0, 0, L, 8, 0, L); seg(8, 0, L, 8, 8, L); seg(8, 8, L, 0, 8, L); seg(0, 8, L, 0, 0, L);
-                seg(0, 0, L + 1, 8, 0, L + 1); seg(8, 0, L + 1, 8, 8, L + 1); seg(8, 8, L + 1, 0, 8, L + 1); seg(0, 8, L + 1, 0, 0, L + 1);
-                seg(0, 0, L, 0, 0, L + 1); seg(8, 0, L, 8, 0, L + 1); seg(8, 8, L, 8, 8, L + 1); seg(0, 8, L, 0, 8, L + 1);
+                seg(lo, lo, L0, hi, lo, L0); seg(hi, lo, L0, hi, hi, L0); seg(hi, hi, L0, lo, hi, L0); seg(lo, hi, L0, lo, lo, L0);
+                seg(lo, lo, L1, hi, lo, L1); seg(hi, lo, L1, hi, hi, L1); seg(hi, hi, L1, lo, hi, L1); seg(lo, hi, L1, lo, lo, L1);
+                seg(lo, lo, L0, lo, lo, L1); seg(hi, lo, L0, hi, lo, L1); seg(hi, hi, L0, hi, hi, L1); seg(lo, hi, L0, lo, hi, L1);
             }
             layerOutline.geometry.attributes.position.needsUpdate = true;
         }

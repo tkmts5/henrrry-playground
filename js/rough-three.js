@@ -179,8 +179,8 @@
      * @param {number} [jitter] - ずれの大きさ
      */
     function drawRoughFilledBox(scene, camera, center, width, depth, height, color, segmentLength, jitter) {
-        const segLen = segmentLength ?? 2;
-        const jit = jitter ?? 0.1;
+        const segLen = segmentLength ?? 3;//3
+        const jit = jitter ?? 0.2;//0.2
         const baseColor = color ?? DEFAULT_BOX_COLOR;
         const wx = width / 2, dy = depth / 2, hz = height / 2;
         const mathVertices = [
@@ -375,6 +375,83 @@
     }
 
     // -------------------------------------------------------------------------
+    // ボクセルアート（192文字 + パレット）
+    // -------------------------------------------------------------------------
+    const VOXEL_EXPORT_CHAR_BASE = 0xA500;
+    const VOXEL_PACKED_LEN = 192;
+    const VOXEL_SIZE = 8;
+
+    /**
+     * 192文字のデータ文字列を512要素のボクセル配列（各要素0〜7）に復元する。
+     * @param {string} s - 192文字の文字列（voxel-edit のエクスポート形式）
+     * @returns {Uint8Array} 長さ512、各要素0〜7
+     */
+    function unpackVoxelData(s) {
+        const voxels = new Uint8Array(VOXEL_SIZE * VOXEL_SIZE * VOXEL_SIZE);
+        const base = VOXEL_EXPORT_CHAR_BASE;
+        for (let g = 0; g < 64; g++) {
+            const i = g * 8;
+            const b0 = ((s.codePointAt(g * 3) ?? base) - base) & 255;
+            const b1 = ((s.codePointAt(g * 3 + 1) ?? base) - base) & 255;
+            const b2 = ((s.codePointAt(g * 3 + 2) ?? base) - base) & 255;
+            voxels[i] = b0 >> 5;
+            voxels[i + 1] = (b0 >> 2) & 7;
+            voxels[i + 2] = ((b0 & 3) << 1) | (b1 >> 7);
+            voxels[i + 3] = (b1 >> 4) & 7;
+            voxels[i + 4] = (b1 >> 1) & 7;
+            voxels[i + 5] = ((b1 & 1) << 2) | (b2 >> 6);
+            voxels[i + 6] = (b2 >> 3) & 7;
+            voxels[i + 7] = b2 & 7;
+        }
+        return voxels;
+    }
+
+    /**
+     * 192文字のデータ文字列とカラーパレットを受け取り、Three.js の scene 上に
+     * 8×8×8 のボクセルアートを drawRoughFilledBox で描画する。
+     * 数学座標系: x=横, y=奥行き, z=高さ。drawRoughFilledBox と同じく center は数学座標の THREE.Vector3。
+     *
+     * @param {THREE.Scene} scene
+     * @param {THREE.Camera} camera - drawRoughFilledBox の可視判定に使用
+     * @param {string} dataString - 192文字の文字列（voxel-edit エクスポート形式、U+A500〜U+A5FF）
+     * @param {string[]} palette - 色の配列。palette[0] は未使用、palette[1]〜palette[7] が色（例: '#ff0000'）
+     * @param {THREE.Vector3} [center] - ボクセルアート全体の中心（数学座標）。省略時は原点
+     * @param {number} [boxSize=1] - 1ボックスの1辺のサイズ（数学座標）
+     * @param {number} [segmentLength] - drawRoughFilledBox に渡す辺の区切り長さ
+     * @param {number} [jitter] - drawRoughFilledBox に渡すずれの大きさ
+     */
+    function drawVoxelArt(scene, camera, dataString, palette, center, boxSize, segmentLength, jitter) {
+        if (typeof dataString !== 'string' || dataString.length !== VOXEL_PACKED_LEN) {
+            console.warn('rough-three.js drawVoxelArt: dataString は192文字である必要があります。');
+            return;
+        }
+        const hasCenter = center && center.isVector3;
+        const artCenter = hasCenter ? center : new THREE.Vector3(0, 0, 0);
+        const size = hasCenter
+            ? ((boxSize != null && boxSize > 0) ? Number(boxSize) : 1)
+            : ((center != null && Number(center) > 0) ? Number(center) : 1);
+        const segLen = hasCenter ? segmentLength : boxSize;
+        const jit = hasCenter ? jitter : segmentLength;
+        const voxels = unpackVoxelData(dataString);
+        const SIZE = VOXEL_SIZE;
+        const half = (SIZE / 2) * size;
+        for (let z = 0; z < SIZE; z++) {
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const c = voxels[x + SIZE * y + SIZE * SIZE * z];
+                    if (c === 0) continue;
+                    const color = palette && palette[c] ? palette[c] : DEFAULT_BOX_COLOR;
+                    const mx = (x + 0.5) * size - half + artCenter.x;
+                    const my = ((SIZE - 1 - z) + 0.5) * size - half + artCenter.y;
+                    const mz = (y + 0.5) * size - half + artCenter.z;
+                    const boxCenter = new THREE.Vector3(mx, my, mz);
+                    drawRoughFilledBox(scene, camera, boxCenter, size, size, size, color, segLen, jit);
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // 公開 API
     // -------------------------------------------------------------------------
     global.RoughThree = {
@@ -382,10 +459,14 @@
         roughEdgePoints,
         drawRoughFilledBox,
         drawRoughFilledSphere,
+        drawVoxelArt,
+        unpackVoxelData,
         perlinNoise2D,
         perlinNoise3D,
         DEFAULT_BOX_COLOR,
-        DEFAULT_SPHERE_COLOR
+        DEFAULT_SPHERE_COLOR,
+        VOXEL_EXPORT_CHAR_BASE,
+        VOXEL_PACKED_LEN
     };
 
 })(typeof window !== 'undefined' ? window : this);
