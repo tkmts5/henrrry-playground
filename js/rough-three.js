@@ -85,17 +85,21 @@
     /**
      * 辺 a→b を segmentLength ごとに区切り、中間点にのみ jitter を加えてラフな点列を返す。
      * 端点は a, b をそのまま使い、3辺が交わる頂点でずれが生じないようにする。
+     * edgeSeed を渡すと Perlin ノイズで決定的なゆらぎになり、同じ edgeSeed なら常に同じパターンになる
+     * （ボクセルアートで隣接ボックスの隙間を防ぐため）。
      * @param {THREE.Vector3} a - 始点
      * @param {THREE.Vector3} b - 終点
      * @param {number} segmentLength - 区切る長さ（約何pxごと）
      * @param {number} jitter - ずれの大きさ
+     * @param {number} [edgeSeed] - 0,1,2 など。指定時は決定的なラフ（未指定時は Math.random）
      * @returns {THREE.Vector3[]}
      */
-    function roughEdgePoints(a, b, segmentLength, jitter) {
+    function roughEdgePoints(a, b, segmentLength, jitter, edgeSeed) {
         const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
         const totalLen = Math.hypot(dx, dy, dz);
         const steps = Math.max(1, Math.ceil(totalLen / segmentLength));
         const points = [];
+        const useDeterministic = typeof edgeSeed === 'number';
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             if (i === 0) {
@@ -103,9 +107,17 @@
             } else if (i === steps) {
                 points.push(b.clone());
             } else {
-                const jx = (Math.random() - 0.5) * 2 * jitter;
-                const jy = (Math.random() - 0.5) * 2 * jitter;
-                const jz = (Math.random() - 0.5) * 2 * jitter;
+                let jx, jy, jz;
+                if (useDeterministic) {
+                    const u = i * 1.23, v = edgeSeed * 71;
+                    jx = perlinNoise3D(u, v, 0) * jitter;
+                    jy = perlinNoise3D(u + 50, v, 0.3) * jitter;
+                    jz = perlinNoise3D(u + 100, v, 0.7) * jitter;
+                } else {
+                    jx = (Math.random() - 0.5) * 2 * jitter;
+                    jy = (Math.random() - 0.5) * 2 * jitter;
+                    jz = (Math.random() - 0.5) * 2 * jitter;
+                }
                 points.push(new THREE.Vector3(
                     a.x + dx * t + jx,
                     a.y + dy * t + jy,
@@ -202,15 +214,15 @@
             BOX_EDGE_TYPES.height[0]
         ];
         const templateX = edgeTemplateFromPoints(
-            roughEdgePoints(vertices[canonX[0]], vertices[canonX[1]], segLen, jit),
+            roughEdgePoints(vertices[canonX[0]], vertices[canonX[1]], segLen, jit, 0),
             vertices[canonX[0]], vertices[canonX[1]]
         );
         const templateY = edgeTemplateFromPoints(
-            roughEdgePoints(vertices[canonY[0]], vertices[canonY[1]], segLen, jit),
+            roughEdgePoints(vertices[canonY[0]], vertices[canonY[1]], segLen, jit, 1),
             vertices[canonY[0]], vertices[canonY[1]]
         );
         const templateZ = edgeTemplateFromPoints(
-            roughEdgePoints(vertices[canonZ[0]], vertices[canonZ[1]], segLen, jit),
+            roughEdgePoints(vertices[canonZ[0]], vertices[canonZ[1]], segLen, jit, 2),
             vertices[canonZ[0]], vertices[canonZ[1]]
         );
 
@@ -375,45 +387,53 @@
     }
 
     // -------------------------------------------------------------------------
-    // ボクセルアート（192文字 + パレット）
+    // ボクセルアート（7×7×7、129文字 + 256文字変換表 + パレット）
     // -------------------------------------------------------------------------
-    const VOXEL_EXPORT_CHAR_BASE = 0xA500;
-    const VOXEL_PACKED_LEN = 192;
-    const VOXEL_SIZE = 8;
+    const VOXEL_SIZE = 7;
+    const VOXEL_COUNT = VOXEL_SIZE * VOXEL_SIZE * VOXEL_SIZE;
+    const VOXEL_PACKED_LEN = Math.ceil((VOXEL_COUNT * 3) / 8);
+    const DEFAULT_VOXEL_EXPORT_TABLE = "ぁあぃいぅうぇえぉおかがきぎくぐけげこごさざしじすずせぜそぞただちぢっつづてでとどなにぬねのはばぱひびぴふぶぷへべぺほぼぽまみむめもゃやゅゆょよらりるれろゎわゐゑをんゔゕゖァアィイゥウェエォオカガキギクグケゲコゴサザシジスズセゼソゾタダチヂッツヅテデトドナニヌネノハバパヒビピフブプヘベペホボポマミムメモャヤュユョヨラリルレロヮワヲンヴヵヶ一右雨円王音下火花貝学気九休玉金空月犬見五口校左三山子四糸字耳七車手十出女小上森人水正生青夕石赤千川先早草足村大男竹中虫町天田土二日入年白八百文木本名目立力林六引羽雲園遠何";
 
     /**
-     * 192文字のデータ文字列を512要素のボクセル配列（各要素0〜7）に復元する。
-     * @param {string} s - 192文字の文字列（voxel-edit のエクスポート形式）
-     * @returns {Uint8Array} 長さ512、各要素0〜7
+     * 129文字のデータ文字列を343要素のボクセル配列（各要素0〜7）に復元する。
+     * 各文字は変換表のインデックス（0〜255）でバイト値に変換し、8ビットずつ並べて1029ビット、
+     * さらに3ビットずつ343個の値に展開する。
+     * 変換表は引数またはグローバル VOXEL_EXPORT_TABLE がなければ、組み込みの DEFAULT_VOXEL_EXPORT_TABLE を使用する。
+     * @param {string} s - 129文字の文字列（voxel-edit のエクスポート形式）
+     * @param {string} [exportTable] - 256文字の変換表。省略時はグローバルまたは組み込み表を使用
+     * @returns {Uint8Array} 長さ343、各要素0〜7
      */
-    function unpackVoxelData(s) {
-        const voxels = new Uint8Array(VOXEL_SIZE * VOXEL_SIZE * VOXEL_SIZE);
-        const base = VOXEL_EXPORT_CHAR_BASE;
-        for (let g = 0; g < 64; g++) {
-            const i = g * 8;
-            const b0 = ((s.codePointAt(g * 3) ?? base) - base) & 255;
-            const b1 = ((s.codePointAt(g * 3 + 1) ?? base) - base) & 255;
-            const b2 = ((s.codePointAt(g * 3 + 2) ?? base) - base) & 255;
-            voxels[i] = b0 >> 5;
-            voxels[i + 1] = (b0 >> 2) & 7;
-            voxels[i + 2] = ((b0 & 3) << 1) | (b1 >> 7);
-            voxels[i + 3] = (b1 >> 4) & 7;
-            voxels[i + 4] = (b1 >> 1) & 7;
-            voxels[i + 5] = ((b1 & 1) << 2) | (b2 >> 6);
-            voxels[i + 6] = (b2 >> 3) & 7;
-            voxels[i + 7] = b2 & 7;
+    function unpackVoxelData(s, exportTable) {
+        const g = typeof global !== 'undefined' ? global : (typeof window !== 'undefined' ? window : {});
+        const table = exportTable || g.VOXEL_EXPORT_TABLE || DEFAULT_VOXEL_EXPORT_TABLE;
+        const voxels = new Uint8Array(VOXEL_COUNT);
+        if (table.length < 256) return voxels;
+        var str = s;
+        if (str.length === VOXEL_PACKED_LEN - 1) str = str + table[0];
+        if (str.length !== VOXEL_PACKED_LEN) return voxels;
+        const bits = [];
+        for (let j = 0; j < VOXEL_PACKED_LEN; j++) {
+            const idx = table.indexOf(str[j]);
+            const byteVal = (idx >= 0 ? idx : 0) & 255;
+            for (let bitInByte = 0; bitInByte < 8; bitInByte++) bits.push((byteVal >> bitInByte) & 1);
+        }
+        for (let i = 0; i < VOXEL_COUNT; i++) {
+            let v = 0;
+            for (let b = 0; b < 3; b++) if (bits[i * 3 + b]) v |= 1 << b;
+            voxels[i] = v;
         }
         return voxels;
     }
 
     /**
-     * 192文字のデータ文字列とカラーパレットを受け取り、Three.js の scene 上に
-     * 8×8×8 のボクセルアートを drawRoughFilledBox で描画する。
+     * 129文字のデータ文字列とカラーパレットを受け取り、Three.js の scene 上に
+     * 7×7×7 のボクセルアートを drawRoughFilledBox で描画する。
      * 数学座標系: x=横, y=奥行き, z=高さ。drawRoughFilledBox と同じく center は数学座標の THREE.Vector3。
+     * 変換表は組み込み済み。voxel-export-table.js を読み込めばその表を優先使用。
      *
      * @param {THREE.Scene} scene
      * @param {THREE.Camera} camera - drawRoughFilledBox の可視判定に使用
-     * @param {string} dataString - 192文字の文字列（voxel-edit エクスポート形式、U+A500〜U+A5FF）
+     * @param {string} dataString - 129文字の文字列（voxel-edit エクスポート形式、256文字変換表対応）
      * @param {string[]} palette - 色の配列。palette[0] は未使用、palette[1]〜palette[7] が色（例: '#ff0000'）
      * @param {THREE.Vector3} [center] - ボクセルアート全体の中心（数学座標）。省略時は原点
      * @param {number} [boxSize=1] - 1ボックスの1辺のサイズ（数学座標）
@@ -421,8 +441,9 @@
      * @param {number} [jitter] - drawRoughFilledBox に渡すずれの大きさ
      */
     function drawVoxelArt(scene, camera, dataString, palette, center, boxSize, segmentLength, jitter) {
-        if (typeof dataString !== 'string' || dataString.length !== VOXEL_PACKED_LEN) {
-            console.warn('rough-three.js drawVoxelArt: dataString は192文字である必要があります。');
+        var len = typeof dataString === 'string' ? dataString.length : 0;
+        if (len !== VOXEL_PACKED_LEN && len !== VOXEL_PACKED_LEN - 1) {
+            console.warn('rough-three.js drawVoxelArt: dataString は' + VOXEL_PACKED_LEN + '文字（または' + (VOXEL_PACKED_LEN - 1) + '文字）である必要があります。現在: ' + len);
             return;
         }
         const hasCenter = center && center.isVector3;
@@ -446,6 +467,12 @@
                     const mz = (y + 0.5) * size - half + artCenter.z;
                     const boxCenter = new THREE.Vector3(mx, my, mz);
                     drawRoughFilledBox(scene, camera, boxCenter, size, size, size, color, segLen, jit);
+                    /*drawRoughFilledSphere(
+                        scene,
+                        boxCenter,
+                        size, color,
+                        segLen, jit
+                    );*/
                 }
             }
         }
@@ -465,8 +492,9 @@
         perlinNoise3D,
         DEFAULT_BOX_COLOR,
         DEFAULT_SPHERE_COLOR,
-        VOXEL_EXPORT_CHAR_BASE,
-        VOXEL_PACKED_LEN
+        VOXEL_PACKED_LEN,
+        VOXEL_SIZE,
+        VOXEL_COUNT
     };
 
 })(typeof window !== 'undefined' ? window : this);

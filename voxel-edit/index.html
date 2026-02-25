@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voxel 8×8×8</title>
+    <title>Voxel 7×7×7</title>
     <style>
         * { box-sizing: border-box; }
         html, body { margin: 0; min-height: 100vh; }
@@ -130,7 +130,7 @@
             <div class="palette" id="palette"></div>
             <div class="export-row">
                 <button type="button" id="importBtn">インポート</button>
-                <textarea id="importText" placeholder="192文字"></textarea>
+                <textarea id="importText" placeholder="129文字"></textarea>
             </div>
             <div class="export-row">
                 <button type="button" id="exportBtn">エクスポート</button>
@@ -144,12 +144,15 @@
         </div>
     </div>
 
+    <script src="../js/voxel-export-table.js"></script>
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        const SIZE = 8;
-        const CELL = 256 / SIZE; // 32px per cell
+        const SIZE = 7;
+        const CELL = 256 / SIZE;
+        const VOXEL_COUNT = SIZE * SIZE * SIZE;
+        const PACKED_LEN = Math.ceil((VOXEL_COUNT * 3) / 8);
 
         // 0 = ドットなし、1〜7 = 7色（8色に圧縮）
         const PALETTE = [
@@ -158,7 +161,7 @@
             '#00ff00', '#0000ff', '#ffff00'
         ];
 
-        const voxels = new Uint8Array(SIZE * SIZE * SIZE);
+        const voxels = new Uint8Array(VOXEL_COUNT);
         let viewMode = 'front';
         let layer = 0;
         let selectedColor = 1;
@@ -181,8 +184,8 @@
         function gridToVoxel(gridX, gridY) {
             if (gridX < 0 || gridX >= SIZE || gridY < 0 || gridY >= SIZE) return null;
             if (viewMode === 'front') return { x: gridX, y: layer, z: gridY };
-            if (viewMode === 'side') return { x: layer, y: 7 - gridY, z: 7 - gridX };
-            return { x: gridX, y: 7 - gridY, z: layer };
+            if (viewMode === 'side') return { x: layer, y: SIZE - 1 - gridY, z: SIZE - 1 - gridX };
+            return { x: gridX, y: SIZE - 1 - gridY, z: layer };
         }
 
         const gridCanvas = document.getElementById('gridCanvas');
@@ -357,20 +360,26 @@
         const importBtn = document.getElementById('importBtn');
         const importText = document.getElementById('importText');
 
-        const EXPORT_CHAR_BASE = 0xA500;
-        const PACKED_LEN = 192;
+        const TABLE = typeof VOXEL_EXPORT_TABLE !== 'undefined' ? VOXEL_EXPORT_TABLE : '';
 
         function exportData() {
-            const v = voxels;
+            if (!TABLE || TABLE.length < 256) {
+                alert('変換表（voxel-export-table.js）を読み込んでください');
+                return;
+            }
+            const bits = [];
+            for (let i = 0; i < VOXEL_COUNT; i++) {
+                const v = (voxels[i] || 0) & 7;
+                for (let b = 0; b < 3; b++) bits.push((v >> b) & 1);
+            }
             let out = '';
-            for (let g = 0; g < 64; g++) {
-                const i = g * 8;
-                const v0 = v[i] & 7, v1 = v[i + 1] & 7, v2 = v[i + 2] & 7, v3 = v[i + 3] & 7;
-                const v4 = v[i + 4] & 7, v5 = v[i + 5] & 7, v6 = v[i + 6] & 7, v7 = v[i + 7] & 7;
-                const b0 = (v0 << 5) | (v1 << 2) | (v2 >> 1);
-                const b1 = ((v2 & 1) << 7) | (v3 << 4) | (v4 << 1) | (v5 >> 2);
-                const b2 = ((v5 & 3) << 6) | (v6 << 3) | v7;
-                out += String.fromCodePoint(EXPORT_CHAR_BASE + b0, EXPORT_CHAR_BASE + b1, EXPORT_CHAR_BASE + b2);
+            for (let j = 0; j < PACKED_LEN; j++) {
+                let byteVal = 0;
+                for (let bitInByte = 0; bitInByte < 8; bitInByte++) {
+                    const bitIndex = j * 8 + bitInByte;
+                    if (bitIndex < bits.length && bits[bitIndex]) byteVal |= 1 << bitInByte;
+                }
+                out += TABLE[byteVal];
             }
             exportText.value = out;
         }
@@ -378,22 +387,23 @@
         function importData() {
             const s = importText.value.replace(/\s/g, '');
             if (s.length !== PACKED_LEN) {
-                alert('192文字の文字列を貼り付けてください');
+                alert(PACKED_LEN + '文字の文字列を貼り付けてください');
                 return;
             }
-            for (let g = 0; g < 64; g++) {
-                const i = g * 8;
-                const b0 = ((s.codePointAt(g * 3) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
-                const b1 = ((s.codePointAt(g * 3 + 1) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
-                const b2 = ((s.codePointAt(g * 3 + 2) ?? EXPORT_CHAR_BASE) - EXPORT_CHAR_BASE) & 255;
-                voxels[i] = b0 >> 5;
-                voxels[i + 1] = (b0 >> 2) & 7;
-                voxels[i + 2] = ((b0 & 3) << 1) | (b1 >> 7);
-                voxels[i + 3] = (b1 >> 4) & 7;
-                voxels[i + 4] = (b1 >> 1) & 7;
-                voxels[i + 5] = ((b1 & 1) << 2) | (b2 >> 6);
-                voxels[i + 6] = (b2 >> 3) & 7;
-                voxels[i + 7] = b2 & 7;
+            if (!TABLE || TABLE.length < 256) {
+                alert('変換表（voxel-export-table.js）を読み込んでください');
+                return;
+            }
+            const bits = [];
+            for (let j = 0; j < PACKED_LEN; j++) {
+                const idx = TABLE.indexOf(s[j]);
+                const byteVal = (idx >= 0 ? idx : 0) & 255;
+                for (let bitInByte = 0; bitInByte < 8; bitInByte++) bits.push((byteVal >> bitInByte) & 1);
+            }
+            for (let i = 0; i < VOXEL_COUNT; i++) {
+                let v = 0;
+                for (let b = 0; b < 3; b++) if (bits[i * 3 + b]) v |= 1 << b;
+                voxels[i] = v;
             }
             drawGrid();
             update3D();
@@ -484,7 +494,7 @@
             if (!layerOutline) return;
             const pos = layerOutline.geometry.attributes.position.array;
             const L = layer;
-            const lo = -0.5, hi = 7.5;
+            const lo = -0.5, hi = SIZE - 0.5;
             const L0 = L - 0.5, L1 = L + 0.5;
             let i = 0;
             function seg(ax, ay, az, bx, by, bz) {
