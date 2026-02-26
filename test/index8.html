@@ -43,9 +43,9 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color('#d9d8d2');
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-        const mainLight = new THREE.DirectionalLight(0xffffff, 0.95);
-        mainLight.position.set(-400, 1000, 400);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.99));
+        const mainLight = new THREE.DirectionalLight(0xffffff, 0.99);
+        mainLight.position.set(-400, 500, 400);
         mainLight.target.position.set(0, 0, 0);
         scene.add(mainLight);
         scene.add(mainLight.target);
@@ -67,10 +67,10 @@
         //RoughThree.drawRoughFilledBox(scene, camera, new THREE.Vector3(0, 0, 0), 160, 160, 160, '#fff', 3, 0.2);
 
 
-        const data = "えぁ雲ぁニ何何何何何何何何何何むニいぁぁぁぁぁ村何何何何何何何何何何あぁぁぁぁぁぁぁ何何何何何何何何何何ぐぁぁぁぁぁぁぁ林何何何何何何何何何ナぁぁぁぁぁぁぁ校何何何何何何何何何何いぁニいぁドぁ校何何何本むナ遠天何何だえセぁぁぁぁぁぁョえニ何ぁ百そぁぁぁぁぁぁ";
-        const palette = [null, '#333', '#ffffff', '#888888', '#ff0000', '#00ff00', '#0000ff', '#afa893'];
+        const data = "餌璽軸疾執湿嫉漆芝赦斜煮遮邪蛇酌釈爵寂朱狩殊珠腫趣寿呪需儒囚舟秀臭袖羞愁酬醜蹴襲汁充柔渋銃獣叔淑粛塾俊瞬旬巡盾准殉循潤遵庶緒如叙徐升召匠床抄肖尚昇沼宵症祥称渉紹訟掌晶焦硝粧詔奨詳彰憧衝償礁鐘丈冗浄剰畳壌嬢錠";
+        const palette = [null, '#000000', '#ffffff', '#0d3b66', '#faf0ca','#f4d35e', '#ee964b', '#f95738'];
 
-        RoughThree.drawVoxelArt(scene, camera, data, palette, new THREE.Vector3(0, 0, 0), 20,3,0.5);
+        RoughThree.drawVoxelArt(scene, camera, data, palette, new THREE.Vector3(0, 0, 0), 40, 3, 0.3);
 
 
         renderer.render(scene, camera);
