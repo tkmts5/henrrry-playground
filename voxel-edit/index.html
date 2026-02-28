@@ -27,6 +27,11 @@
             margin: auto;
         }
 
+        h1.title {
+            font-family: Chicago_12;
+            font-size: 1.2em !important
+        }
+
         .field-name {
             font-family: Chicago_12;
             font-size: 1em;
@@ -119,14 +124,15 @@
         }
 
         #dataText {
-            font-size: 14.8px;
+            font-size: 15px;
+            font-family: monospace;
             width: 100%;
             max-width: 325px;
-            height: 90px;
+            height: 150px;
             resize: vertical;
             border: 1.5px solid var(--secondary);
             background: #efefef;
-            padding: 6px;
+            padding: 10px;
         }
 
         #dataText:focus {
@@ -229,11 +235,27 @@
         </div>
         <div class="window window-preview">
             <div class="title-bar">
-                <h1 class="title">Preview & Download</h1>
+                <h1 class="title">3D Preview</h1>
             </div>
             <div class="separator"></div>
             <div class="window-pane">
                 <div id="previewContainer"></div>
+                <button type="button" class="btn" id="spinBtn">Spin</button>
+                <section class="field-row" style="align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                    <label for="gifSizeSelect">GIF size:</label>
+                    <select id="gifSizeSelect">
+                        <option value="320">320</option>
+                        <option value="640">640</option>
+                        <option value="1200" selected>1200</option>
+                    </select>
+                    <label for="gifFpsSelect">Frame rate:</label>
+                    <select id="gifFpsSelect">
+                        <option value="10">10 fps</option>
+                        <option value="30">30 fps</option>
+                        <option value="60" selected>60 fps</option>
+                    </select>
+                </section>
+                <button type="button" class="btn" id="downloadGifBtn">Download GIF</button>
             </div>
         </div>
     </div>
@@ -241,6 +263,7 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GIFEncoder, quantize, applyPalette } from 'https://unpkg.com/gifenc@1.0.3';
 
         const SIZE = 7;
         const CELL = 325 / SIZE;
@@ -509,7 +532,12 @@
             }
         });
 
-        let scene, camera, renderer, controls, meshes, layerOutline;
+        let scene, camera, renderer, controls, meshes, layerOutline, frameLine;
+        let spinMode = false;
+        let spinStartTime = 0;
+        let spinRadius = 12;
+        const spinTarget = new THREE.Vector3(SIZE / 2 - 0.5, SIZE / 2 - 0.5, SIZE / 2 - 0.5);
+        const SPIN_CYCLE_DURATION = 3000;
 
         function init3D() {
             const container = document.getElementById('previewContainer');
@@ -545,7 +573,7 @@
             const boxSize = SIZE;
             const frameGeom = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
             const edges = new THREE.EdgesGeometry(frameGeom);
-            const frameLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x666666, linewidth: 1 }));
+            frameLine = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x666666, linewidth: 1 }));
             frameLine.position.set(boxSize / 2 - 0.5, boxSize / 2 - 0.5, boxSize / 2 - 0.5);
             scene.add(frameLine);
 
@@ -564,11 +592,109 @@
 
             function animate() {
                 requestAnimationFrame(animate);
-                controls.update();
+                if (spinMode) {
+                    const totalElapsed = Date.now() - spinStartTime;
+                    const progress = (totalElapsed / SPIN_CYCLE_DURATION) % 1;
+                    const s1 = progress * progress * (3 - 2 * progress);
+                    const s2 = s1 * s1 * (3 - 2 * s1);
+                    const eased = 0.88 * s2 + 0.12 * progress;
+                    const angle = Math.floor(totalElapsed / SPIN_CYCLE_DURATION) * Math.PI * 2 + eased * Math.PI * 2;
+                    camera.position.x = spinTarget.x + spinRadius * Math.sin(angle);
+                    camera.position.y = spinTarget.y;
+                    camera.position.z = spinTarget.z + spinRadius * Math.cos(angle);
+                    camera.lookAt(spinTarget);
+                } else {
+                    controls.update();
+                }
                 renderer.render(scene, camera);
             }
             animate();
         }
+
+        const spinBtn = document.getElementById('spinBtn');
+        spinBtn.addEventListener('click', () => {
+            spinMode = !spinMode;
+            if (spinMode) {
+                spinRadius = Math.hypot(camera.position.x - spinTarget.x, camera.position.z - spinTarget.z);
+                camera.position.y = spinTarget.y;
+                camera.position.x = spinTarget.x;
+                camera.position.z = spinTarget.z + spinRadius;
+                camera.lookAt(spinTarget);
+                spinStartTime = Date.now();
+            }
+            if (frameLine) frameLine.visible = !spinMode;
+            if (layerOutline) layerOutline.visible = !spinMode;
+            controls.enabled = !spinMode;
+            spinBtn.textContent = spinMode ? 'Stop' : 'Spin';
+        });
+
+        const PREVIEW_SIZE = 320;
+
+        function captureSpinFrame(progress) {
+            const s1 = progress * progress * (3 - 2 * progress);
+            const s2 = s1 * s1 * (3 - 2 * s1);
+            const eased = 0.88 * s2 + 0.12 * progress;
+            const angle = eased * Math.PI * 2;
+            camera.position.x = spinTarget.x + spinRadius * Math.sin(angle);
+            camera.position.y = spinTarget.y;
+            camera.position.z = spinTarget.z + spinRadius * Math.cos(angle);
+            camera.lookAt(spinTarget);
+            renderer.render(scene, camera);
+        }
+
+        document.getElementById('downloadGifBtn').addEventListener('click', () => {
+            const gifSize = parseInt(document.getElementById('gifSizeSelect').value, 10);
+            const gifFps = parseInt(document.getElementById('gifFpsSelect').value, 10);
+            const numFrames = Math.round((SPIN_CYCLE_DURATION / 1000) * gifFps);
+            const frameDelayMs = Math.round(1000 / gifFps);
+
+            const prevFrameVisible = frameLine ? frameLine.visible : true;
+            const prevLayerVisible = layerOutline ? layerOutline.visible : true;
+            if (frameLine) frameLine.visible = false;
+            if (layerOutline) layerOutline.visible = false;
+
+            renderer.setSize(gifSize, gifSize);
+            renderer.setPixelRatio(1);
+
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = gifSize;
+            tmpCanvas.height = gifSize;
+            const tmpCtx = tmpCanvas.getContext('2d');
+
+            const gif = GIFEncoder();
+            let palette = null;
+
+            for (let i = 0; i < numFrames; i++) {
+                const progress = i / numFrames;
+                captureSpinFrame(progress);
+                tmpCtx.drawImage(renderer.domElement, 0, 0, gifSize, gifSize);
+                const imageData = tmpCtx.getImageData(0, 0, gifSize, gifSize);
+                const data = imageData.data;
+
+                if (i === 0) {
+                    palette = quantize(data, 256);
+                }
+                const index = applyPalette(data, palette);
+                gif.writeFrame(index, gifSize, gifSize, {
+                    palette: i === 0 ? palette : undefined,
+                    delay: frameDelayMs
+                });
+            }
+
+            renderer.setSize(PREVIEW_SIZE, PREVIEW_SIZE);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            if (frameLine) frameLine.visible = prevFrameVisible;
+            if (layerOutline) layerOutline.visible = prevLayerVisible;
+
+            gif.finish();
+            const bytes = gif.bytes();
+            const blob = new Blob([bytes], { type: 'image/gif' });
+            const a = document.createElement('a');
+            a.download = 'voxel-spin.gif';
+            a.href = URL.createObjectURL(blob);
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
 
         function update3D() {
             if (!meshes) return;
