@@ -43,9 +43,9 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color('#d9d8d2');
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.99));
-        const mainLight = new THREE.DirectionalLight(0xffffff, 0.99);
-        mainLight.position.set(-400, 500, 400);
+        scene.add(new THREE.AmbientLight(0xffffff, 1));
+        const mainLight = new THREE.DirectionalLight(0xffffff, 3);
+        mainLight.position.set(0, 5, 10);
         mainLight.target.position.set(0, 0, 0);
         scene.add(mainLight);
         scene.add(mainLight.target);
@@ -54,23 +54,28 @@
             50,
             canvas.width / canvas.height,
             0.1,
-            10000
+            100
         );
-        camera.position.set(400, 350, 400);
-        camera.lookAt(0, 0, 0);
+
+
+        //camera.position.set(3, 3, 18);
+        camera.position.set(-1.399, -2.687, 16.831);
+        camera.lookAt(3,3,3);
 
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         renderer.setSize(canvas.width, canvas.height);
         renderer.setClearColor('#d9d8d2');
         renderer.setPixelRatio(window.devicePixelRatio);
 
-        //RoughThree.drawRoughFilledBox(scene, camera, new THREE.Vector3(0, 0, 0), 160, 160, 160, '#fff', 3, 0.2);
+        const geometry = new THREE.SphereGeometry(0.1, 32, 32);
+        const material = new THREE.MeshBasicMaterial({ color: 0xFF0000 });
+        const sphere = new THREE.Mesh(geometry, material);
+        sphere.position.set(3, 3, 3)
+        scene.add(sphere);
+        const data = "ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ講ぁ寒い部ぅ周ぎぁぁ番す飛ぱ進ジぁ期ル味等然が時ぁぁぁぁぁ周ぎ飛ぷぁりぁ川ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ";
+        const palette = [null, '#000000', '#ffffff', '#0d3b66', '#faf0ca', '#f4d35e', '#ee964b', '#f95738'];
 
-
-        const data = "餌璽軸疾執湿嫉漆芝赦斜煮遮邪蛇酌釈爵寂朱狩殊珠腫趣寿呪需儒囚舟秀臭袖羞愁酬醜蹴襲汁充柔渋銃獣叔淑粛塾俊瞬旬巡盾准殉循潤遵庶緒如叙徐升召匠床抄肖尚昇沼宵症祥称渉紹訟掌晶焦硝粧詔奨詳彰憧衝償礁鐘丈冗浄剰畳壌嬢錠";
-        const palette = [null, '#000000', '#ffffff', '#0d3b66', '#faf0ca','#f4d35e', '#ee964b', '#f95738'];
-
-        RoughThree.drawVoxelArt(scene, camera, data, palette, new THREE.Vector3(0, 0, 0), 40, 3, 0.3);
+        RoughThree.drawVoxelArt(scene, camera, data, palette, new THREE.Vector3(3, -3, 3), 1, 0.3, 0.02);
 
 
         renderer.render(scene, camera);
