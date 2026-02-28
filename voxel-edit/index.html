@@ -17,6 +17,7 @@
             gap: 1rem;
             padding: 1rem;
             align-items: flex-start;
+            background: none !important;
         }
 
         #container {
@@ -242,11 +243,22 @@
                 <div id="previewContainer"></div>
                 <button type="button" class="btn" id="spinBtn">Spin</button>
                 <section class="field-row" style="align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                    <label for="zoomSelect">Zoom:</label>
+                    <select id="zoomSelect">
+                        <option value="12">Close-up</option>
+                        <option value="18">Normal</option>
+                        <option value="28" selected>Long-shot</option>
+                    </select>
+                    <label for="easingSelect">Easing:</label>
+                    <select id="easingSelect">
+                        <option value="on">On</option>
+                        <option value="off" selected>Off</option>
+                    </select>
                     <label for="gifSizeSelect">GIF size:</label>
                     <select id="gifSizeSelect">
                         <option value="320">320</option>
-                        <option value="640">640</option>
-                        <option value="1200" selected>1200</option>
+                        <option value="640" selected>640</option>
+                        <option value="1200">1200</option>
                     </select>
                     <label for="gifFpsSelect">Frame rate:</label>
                     <select id="gifFpsSelect">
@@ -282,6 +294,8 @@
         let layer = 0;
         let selectedColor = 1;
         const lastLayerByView = { front: 0, side: 0, top: 0 };
+        let copiedLayerData = null;
+        let shiftOverflowData = null;
 
         function index(x, y, z) {
             return x + SIZE * y + SIZE * SIZE * z;
@@ -447,9 +461,122 @@
             paletteEl.appendChild(btn);
         });
 
+        function copyCurrentLayer() {
+            const data = new Uint8Array(SIZE * SIZE);
+            for (let gy = 0; gy < SIZE; gy++) {
+                for (let gx = 0; gx < SIZE; gx++) {
+                    const v = gridToVoxel(gx, gy);
+                    if (v) data[gx + SIZE * gy] = getVoxel(v.x, v.y, v.z) & 7;
+                }
+            }
+            copiedLayerData = data;
+        }
+
+        function pasteToCurrentLayer() {
+            if (!copiedLayerData || copiedLayerData.length !== SIZE * SIZE) return;
+            for (let gy = 0; gy < SIZE; gy++) {
+                for (let gx = 0; gx < SIZE; gx++) {
+                    const v = gridToVoxel(gx, gy);
+                    if (v) setVoxel(v.x, v.y, v.z, copiedLayerData[gx + SIZE * gy]);
+                }
+            }
+            drawGrid();
+            update3D();
+            updateLayerOutline();
+            updateExportText();
+        }
+
+        function getViewAxis() {
+            if (viewMode === 'front') return 'y';
+            if (viewMode === 'side') return 'x';
+            return 'z';
+        }
+
+        function getLayerSlice(axis, layerIndex) {
+            const data = new Uint8Array(SIZE * SIZE);
+            if (axis === 'y') {
+                for (let z = 0; z < SIZE; z++)
+                    for (let x = 0; x < SIZE; x++)
+                        data[x + SIZE * z] = getVoxel(x, layerIndex, z) & 7;
+            } else if (axis === 'x') {
+                for (let z = 0; z < SIZE; z++)
+                    for (let y = 0; y < SIZE; y++)
+                        data[y + SIZE * z] = getVoxel(layerIndex, y, z) & 7;
+            } else {
+                for (let y = 0; y < SIZE; y++)
+                    for (let x = 0; x < SIZE; x++)
+                        data[x + SIZE * y] = getVoxel(x, y, layerIndex) & 7;
+            }
+            return data;
+        }
+
+        function setLayerSlice(axis, layerIndex, data) {
+            if (axis === 'y') {
+                for (let z = 0; z < SIZE; z++)
+                    for (let x = 0; x < SIZE; x++)
+                        setVoxel(x, layerIndex, z, data[x + SIZE * z]);
+            } else if (axis === 'x') {
+                for (let z = 0; z < SIZE; z++)
+                    for (let y = 0; y < SIZE; y++)
+                        setVoxel(layerIndex, y, z, data[y + SIZE * z]);
+            } else {
+                for (let y = 0; y < SIZE; y++)
+                    for (let x = 0; x < SIZE; x++)
+                        setVoxel(x, y, layerIndex, data[x + SIZE * y]);
+            }
+        }
+
+        const emptyLayer = new Uint8Array(SIZE * SIZE);
+
+        function shiftLayersPositive() {
+            const axis = getViewAxis();
+            const oldOverflow = shiftOverflowData;
+            shiftOverflowData = getLayerSlice(axis, SIZE - 1);
+            for (let i = SIZE - 2; i >= 0; i--)
+                setLayerSlice(axis, i + 1, getLayerSlice(axis, i));
+            setLayerSlice(axis, 0, oldOverflow && oldOverflow.length === SIZE * SIZE ? oldOverflow : emptyLayer);
+            drawGrid();
+            update3D();
+            updateLayerOutline();
+            updateExportText();
+        }
+
+        function shiftLayersNegative() {
+            const axis = getViewAxis();
+            const oldOverflow = shiftOverflowData;
+            shiftOverflowData = getLayerSlice(axis, 0);
+            for (let i = 1; i < SIZE; i++)
+                setLayerSlice(axis, i - 1, getLayerSlice(axis, i));
+            setLayerSlice(axis, SIZE - 1, oldOverflow && oldOverflow.length === SIZE * SIZE ? oldOverflow : emptyLayer);
+            drawGrid();
+            update3D();
+            updateLayerOutline();
+            updateExportText();
+        }
+
         document.addEventListener('keydown', (e) => {
             const tag = document.activeElement?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea') return;
+            if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+                e.preventDefault();
+                copyCurrentLayer();
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+                e.preventDefault();
+                pasteToCurrentLayer();
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                shiftLayersPositive();
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+                e.preventDefault();
+                shiftLayersNegative();
+                return;
+            }
             if (e.key === 'ArrowLeft') {
                 e.preventDefault();
                 const views = ['front', 'side', 'top'];
@@ -539,6 +666,16 @@
         const spinTarget = new THREE.Vector3(SIZE / 2 - 0.5, SIZE / 2 - 0.5, SIZE / 2 - 0.5);
         const SPIN_CYCLE_DURATION = 3000;
 
+        function getCameraOrbitRadius() {
+            const el = document.getElementById('zoomSelect');
+            return el ? parseInt(el.value, 10) || 12 : 12;
+        }
+
+        function applyZoomToCamera() {
+            if (!spinMode) return;
+            spinRadius = getCameraOrbitRadius();
+        }
+
         function init3D() {
             const container = document.getElementById('previewContainer');
             scene = new THREE.Scene();
@@ -595,9 +732,7 @@
                 if (spinMode) {
                     const totalElapsed = Date.now() - spinStartTime;
                     const progress = (totalElapsed / SPIN_CYCLE_DURATION) % 1;
-                    const s1 = progress * progress * (3 - 2 * progress);
-                    const s2 = s1 * s1 * (3 - 2 * s1);
-                    const eased = 0.88 * s2 + 0.12 * progress;
+                    const eased = getSpinProgress(progress);
                     const angle = Math.floor(totalElapsed / SPIN_CYCLE_DURATION) * Math.PI * 2 + eased * Math.PI * 2;
                     camera.position.x = spinTarget.x + spinRadius * Math.sin(angle);
                     camera.position.y = spinTarget.y;
@@ -615,12 +750,16 @@
         spinBtn.addEventListener('click', () => {
             spinMode = !spinMode;
             if (spinMode) {
-                spinRadius = Math.hypot(camera.position.x - spinTarget.x, camera.position.z - spinTarget.z);
+                spinRadius = getCameraOrbitRadius();
                 camera.position.y = spinTarget.y;
                 camera.position.x = spinTarget.x;
                 camera.position.z = spinTarget.z + spinRadius;
                 camera.lookAt(spinTarget);
                 spinStartTime = Date.now();
+            } else {
+                spinRadius = 12;
+                camera.position.set(12, 12, 12);
+                camera.lookAt(spinTarget);
             }
             if (frameLine) frameLine.visible = !spinMode;
             if (layerOutline) layerOutline.visible = !spinMode;
@@ -628,12 +767,20 @@
             spinBtn.textContent = spinMode ? 'Stop' : 'Spin';
         });
 
+        document.getElementById('zoomSelect').addEventListener('change', applyZoomToCamera);
+
         const PREVIEW_SIZE = 320;
 
-        function captureSpinFrame(progress) {
+        function getSpinProgress(progress) {
+            const useEasing = document.getElementById('easingSelect').value === 'on';
+            if (!useEasing) return progress;
             const s1 = progress * progress * (3 - 2 * progress);
             const s2 = s1 * s1 * (3 - 2 * s1);
-            const eased = 0.88 * s2 + 0.12 * progress;
+            return 0.88 * s2 + 0.12 * progress;
+        }
+
+        function captureSpinFrame(progress) {
+            const eased = getSpinProgress(progress);
             const angle = eased * Math.PI * 2;
             camera.position.x = spinTarget.x + spinRadius * Math.sin(angle);
             camera.position.y = spinTarget.y;
@@ -643,6 +790,7 @@
         }
 
         document.getElementById('downloadGifBtn').addEventListener('click', () => {
+            spinRadius = getCameraOrbitRadius();
             const gifSize = parseInt(document.getElementById('gifSizeSelect').value, 10);
             const gifFps = parseInt(document.getElementById('gifFpsSelect').value, 10);
             const numFrames = Math.round((SPIN_CYCLE_DURATION / 1000) * gifFps);
