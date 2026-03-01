@@ -168,6 +168,7 @@
             width: 100%;
             height: 100%;
         }
+
         #cameraParamsDisplay {
             font-family: monospace;
         }
@@ -187,8 +188,15 @@
             gap: 8px;
         }
 
+        .field-row-preview-options {
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
         .window .window-pane {
-            overflow: hidden;
+            overflow: auto;
         }
 
         .window .window-pane::-webkit-scrollbar {
@@ -244,26 +252,34 @@
             <div class="separator"></div>
             <div class="window-pane">
                 <div id="previewContainer"></div>
-                <pre id="cameraParamsDisplay" style="margin: 8px 0; padding: 8px; font-size: 11px; background: #f5f5f5; border-radius: 4px; overflow: auto; max-height: 120px; user-select: text; -webkit-user-select: text; cursor: pointer;" title="Click to copy"></pre>
-                <button type="button" class="btn" id="spinBtn">Spin</button>
-                <section class="field-row" style="align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                <pre id="cameraParamsDisplay"
+                    style="margin: 8px 0; padding: 8px; font-size: 11px; background: #f5f5f5; border-radius: 4px; overflow: auto; max-height: 120px; user-select: text; -webkit-user-select: text; cursor: pointer;"
+                    title="Click to copy"></pre>
+                
+                <section class="field-row field-row-preview-options">
                     <label for="zoomSelect">Zoom:</label>
                     <select id="zoomSelect">
                         <option value="12">Close-up</option>
                         <option value="18">Normal</option>
                         <option value="28" selected>Long-shot</option>
                     </select>
+                </section>
+                <section class="field-row field-row-preview-options">
                     <label for="easingSelect">Easing:</label>
                     <select id="easingSelect">
                         <option value="on">On</option>
                         <option value="off" selected>Off</option>
                     </select>
+                </section>
+                <section class="field-row field-row-preview-options">
                     <label for="gifSizeSelect">GIF size:</label>
                     <select id="gifSizeSelect">
                         <option value="320">320</option>
                         <option value="640" selected>640</option>
                         <option value="1200">1200</option>
                     </select>
+                </section>
+                <section class="field-row field-row-preview-options">
                     <label for="gifFpsSelect">Frame rate:</label>
                     <select id="gifFpsSelect">
                         <option value="10">10 fps</option>
@@ -271,10 +287,10 @@
                         <option value="60" selected>60 fps</option>
                     </select>
                 </section>
+                <section class="field-row field-row-preview-options"></section>
+                <button type="button" class="btn" id="spinBtn">Spin</button>
                 <button type="button" class="btn" id="downloadGifBtn">Download GIF</button>
-            </div>
-        </div>
-    </div>
+                </section>
     <script src="../js/voxel-export-table.js"></script>
     <script type="module">
         import * as THREE from 'three';
@@ -733,6 +749,10 @@
             controls.enableDamping = true;
 
             const cameraParamsEl = document.getElementById('cameraParamsDisplay');
+            function formatCameraParam(v) {
+                const s = (v >= 0 ? ' ' : '') + v.toFixed(3);
+                return s.padStart(8);
+            }
             function updateCameraParamsDisplay() {
                 if (!cameraParamsEl || !camera || !controls) return;
                 if (Date.now() < cameraParamsCopiedFeedbackUntil) {
@@ -740,13 +760,10 @@
                     return;
                 }
                 const p = camera.position;
-                const t = controls.target;
-                const px = p.x.toFixed(3), py = p.y.toFixed(3), pz = p.z.toFixed(3);
-                const tx = t.x.toFixed(3), ty = t.y.toFixed(3), tz = t.z.toFixed(3);
+                const px = formatCameraParam(p.x), py = formatCameraParam(p.y), pz = formatCameraParam(p.z);
                 cameraParamsEl.title = 'Click to copy';
                 cameraParamsEl.textContent =
-                    'camera.position.set(' + px + ', ' + py + ', ' + pz + ');';
-                    //+'\ncamera.lookAt(' + tx + ', ' + ty + ', ' + tz + ');';
+                    'camera.position.set(' + px + ', ' + py + ', ' + pz + ');'
             }
 
             function animate() {
@@ -798,7 +815,7 @@
             navigator.clipboard.writeText(el.textContent).then(() => {
                 cameraParamsCopiedFeedbackUntil = Date.now() + 1200;
                 el.title = 'Copied!';
-            }).catch(() => {});
+            }).catch(() => { });
         });
 
         const PREVIEW_SIZE = 320;

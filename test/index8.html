@@ -59,7 +59,7 @@
 
 
         //camera.position.set(3, 3, 18);
-        camera.position.set(-1.399, -2.687, 16.831);
+        camera.position.set(-4.725, 1.823, 16.489);
         camera.lookAt(3,3,3);
 
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -72,7 +72,7 @@
         const sphere = new THREE.Mesh(geometry, material);
         sphere.position.set(3, 3, 3)
         scene.add(sphere);
-        const data = "ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ講ぁ寒い部ぅ周ぎぁぁ番す飛ぱ進ジぁ期ル味等然が時ぁぁぁぁぁ周ぎ飛ぷぁりぁ川ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ";
+        const data = "ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ部ぅ育が解しニぉ科こ飛ジあ川ぁ味ぁポお航ぃぁぁぁぁぁぁぁぁぁり進ゼぁ点ぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁぁ";
         const palette = [null, '#000000', '#ffffff', '#0d3b66', '#faf0ca', '#f4d35e', '#ee964b', '#f95738'];
 
         RoughThree.drawVoxelArt(scene, camera, data, palette, new THREE.Vector3(3, -3, 3), 1, 0.3, 0.02);
