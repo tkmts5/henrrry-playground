@@ -858,19 +858,28 @@
             tmpCanvas.height = gifSize;
             const tmpCtx = tmpCanvas.getContext('2d');
 
-            const gif = GIFEncoder();
-            let palette = null;
+            const sampleCount = Math.min(24, numFrames);
+            const step = Math.max(1, Math.floor(numFrames / sampleCount));
+            const samples = [];
+            for (let i = 0; i < numFrames; i += step) {
+                if (samples.length >= sampleCount) break;
+                captureSpinFrame(i / numFrames);
+                tmpCtx.drawImage(renderer.domElement, 0, 0, gifSize, gifSize);
+                samples.push(tmpCtx.getImageData(0, 0, gifSize, gifSize));
+            }
+            const pixelCount = samples.length * gifSize * gifSize * 4;
+            const combined = new Uint8ClampedArray(pixelCount);
+            for (let s = 0; s < samples.length; s++) {
+                combined.set(samples[s].data, s * gifSize * gifSize * 4);
+            }
+            const palette = quantize(combined, 256);
 
+            const gif = GIFEncoder();
             for (let i = 0; i < numFrames; i++) {
-                const progress = i / numFrames;
-                captureSpinFrame(progress);
+                captureSpinFrame(i / numFrames);
                 tmpCtx.drawImage(renderer.domElement, 0, 0, gifSize, gifSize);
                 const imageData = tmpCtx.getImageData(0, 0, gifSize, gifSize);
                 const data = imageData.data;
-
-                if (i === 0) {
-                    palette = quantize(data, 256);
-                }
                 const index = applyPalette(data, palette);
                 gif.writeFrame(index, gifSize, gifSize, {
                     palette: i === 0 ? palette : undefined,
